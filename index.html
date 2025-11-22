@@ -268,6 +268,7 @@ body{font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial; bac
   <section id="page-vault" style="display:none">
     <h3>Your Health Vault</h3>
     <div id="vault-list" class="row g-3"></div>
+
   </section>
 
   <!-- AI PAGE (full page chat) -->
@@ -280,7 +281,12 @@ body{font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial; bac
         </div>
         <div>
           <button class="btn btn-sm btn-outline-secondary" id="ai-back">← Back</button>
-        </div>
+          <button id="ai-delete-chat" class="btn btn-danger btn-sm">
+          Delete Chat
+         </button>
+
+          </div>
+
       </div>
 
       <div id="ai-chat" class="ai-chat mt-3"></div>
@@ -659,22 +665,106 @@ function doSearch(q){
 }
 
 /* ---------- VAULT ---------- */
-function renderVault(){
-  const vault = el('vault-list'); vault.innerHTML='';
-  const arr = JSON.parse(localStorage.getItem('vault') || '[]');
-  arr.forEach(f=>{
-    const col = document.createElement('div'); col.className='col-md-4';
-    col.innerHTML = `<div class="product-card p-3"><p class="mb-2">${f.name}</p><a href="${f.url}" target="_blank" class="btn btn-sm btn-primary">View</a></div>`;
+
+// Render vault
+function renderVault() {
+  const vault = el("vault-list");
+  vault.innerHTML = "";
+
+  const arr = JSON.parse(localStorage.getItem("vault") || "[]");
+
+  arr.forEach((f, i) => {
+    const col = document.createElement("div");
+    col.className = "col-md-4";
+
+    col.innerHTML = `
+      <div class="product-card p-3">
+        <p class="mb-2">${f.name}</p>
+        <button class="btn btn-sm btn-primary me-2" onclick="openVaultFileByIndex(${i})">View</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteVaultFile(${i})">Delete</button>
+      </div>
+    `;
+
     vault.appendChild(col);
   });
 }
-el('vault-upload').addEventListener('change', e=>{
-  const f=e.target.files[0]; if(!f) return;
+
+// Upload file to vault
+el("vault-upload").addEventListener("change", (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+
   const reader = new FileReader();
-  reader.onload = ()=>{ const arr=JSON.parse(localStorage.getItem('vault')||'[]'); arr.push({name:f.name,time:Date.now(),url:reader.result}); localStorage.setItem('vault',JSON.stringify(arr)); renderVault(); showToast('Uploaded to vault'); };
+
+  reader.onload = () => {
+    const arr = JSON.parse(localStorage.getItem("vault") || "[]");
+
+    arr.push({
+      name: f.name,
+      time: Date.now(),
+      url: reader.result
+    });
+
+    localStorage.setItem("vault", JSON.stringify(arr));
+
+    renderVault();
+    showToast("Uploaded to vault");
+  };
+
   reader.readAsDataURL(f);
 });
-el('view-vault').addEventListener('click', ()=> goToPage('vault'));
+
+// Open file safely (using index instead of URL)
+function openVaultFileByIndex(i) {
+  const arr = JSON.parse(localStorage.getItem("vault") || "[]");
+  const file = arr[i];
+  if (file) openVaultFile(file.url);
+}
+
+// Actual file opener
+function openVaultFile(base64Url) {
+  try {
+    // Extract Base64 data + mime type
+    const base64Parts = base64Url.split(",");
+    const mime = base64Parts[0].match(/data:(.*);base64/)[1];
+    const byteCharacters = atob(base64Parts[1]);
+
+    // Convert to array buffer
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: mime });
+
+    // Create a blob URL
+    const blobUrl = URL.createObjectURL(blob);
+
+    // Open safely in new tab
+    window.open(blobUrl, "_blank");
+  } catch (e) {
+    console.error("Error opening file:", e);
+    showToast("Could not open file.");
+  }
+}
+
+
+
+// Delete file
+function deleteVaultFile(i) {
+  const arr = JSON.parse(localStorage.getItem("vault") || "[]");
+
+  arr.splice(i, 1);
+  localStorage.setItem("vault", JSON.stringify(arr));
+
+  renderVault();
+  showToast("File deleted");
+}
+
+// Open vault page
+el("view-vault").addEventListener("click", () => goToPage("vault"));
+
 
 /* ---------- TOAST ---------- */
 function showToast(text){
@@ -740,50 +830,93 @@ document.getElementById('logout-btn').addEventListener('click', ()=>{
   goToPage('home');
 });
 
-/* Dashboard navigation (permanent button) */
-document.getElementById('dashboard-nav').addEventListener('click', ()=> {
-  if(!currentUser){
-    // show login modal but still allow access to a demo dashboard? we'll show modal
+/* ---------- Dashboard Navigation ---------- */
+document.getElementById('dashboard-nav').addEventListener('click', () => {
+  if (!currentUser) {
     authModal.show();
     return;
   }
   goToDashboard();
 });
 
-/* fetch and render user-specific data into dashboard */
-async function goToDashboard(){
-  // show user dashboard page
-  document.querySelectorAll('main > section, section.home-section').forEach(s=>s.style.display='none');
-  el('user-dashboard').style.display='block';
-  if(!currentUser) return;
-  el('dashboard-name').textContent = currentUser.name || '';
-  el('dashboard-email').textContent = currentUser.email || '';
 
-  // Example endpoints (adapt to your backend)
+/* ---------- Proper dashboard loader ---------- */
+async function goToDashboard() {
+  document.querySelectorAll('main > section, section.home-section')
+    .forEach(s => s.style.display = 'none');
+
+  el("user-dashboard").style.display = "block";
+
+  if (!currentUser) return;
+
+  el("dashboard-name").textContent = currentUser.name || "";
+  el("dashboard-email").textContent = currentUser.email || "";
+
   try {
-    // Orders
-    const or = await fetch(`${API_BASE}/orders/user/${currentUser._id}`).then(r=>r.json()).catch(()=>[]);
-    const ulO = el('user-orders'); ulO.innerHTML='';
-    if(Array.isArray(or) && or.length){
-      or.forEach(o=>{ const li=document.createElement('li'); li.className='list-group-item'; li.textContent = `${o.items?.length||0} items — ₹${o.total||o.amount||0}`; ulO.appendChild(li); });
-    } else ulO.innerHTML='<li class="list-group-item small-muted">No orders</li>';
 
-    // Doctor bookings
-    const bd = await fetch(`${API_BASE}/bookings/doctors/${currentUser._id}`).then(r=>r.json()).catch(()=>[]);
-    const ulD = el('user-doctors'); ulD.innerHTML='';
-    if(Array.isArray(bd) && bd.length){
-      bd.forEach(b=>{ const li=document.createElement('li'); li.className='list-group-item'; li.textContent = `${b.doctorName||b.name} — ${b.date||b.time||'N/A'}`; ulD.appendChild(li); });
-    } else ulD.innerHTML='<li class="list-group-item small-muted">No bookings</li>';
+    /* ---------- Fetch Orders (Correct API) ---------- */
+    const orders = await fetch(`${API_BASE}/orders?userId=${currentUser._id}`)
+      .then(res => res.json())
+      .catch(() => []);
 
-    // Lab bookings
-    const bl = await fetch(`${API_BASE}/bookings/labs/${currentUser._id}`).then(r=>r.json()).catch(()=>[]);
-    const ulL = el('user-labs'); ulL.innerHTML='';
-    if(Array.isArray(bl) && bl.length){
-      bl.forEach(b=>{ const li=document.createElement('li'); li.className='list-group-item'; li.textContent = `${b.testName||b.name} — ${b.date||b.time||'N/A'}`; ulL.appendChild(li); });
-    } else ulL.innerHTML='<li class="list-group-item small-muted">No lab bookings</li>';
+    const ulO = el("user-orders");
+    ulO.innerHTML = "";
 
-  } catch(err){ console.warn('dashboard fetch error', err); }
-  // also render reminders list
+    if (Array.isArray(orders) && orders.length) {
+      orders.forEach(o => {
+        const li = document.createElement("li");
+        li.className = "list-group-item";
+        li.textContent = `${o.items?.length || 0} items — ₹${o.total || o.amount || 0}`;
+        ulO.appendChild(li);
+      });
+    } else {
+      ulO.innerHTML = `<li class="list-group-item small-muted">No orders</li>`;
+    }
+
+  /* fetch user bookings (doctor + lab mixed) */
+const allBookings = await fetch(`${API_BASE}/bookings/user/${currentUser._id}`)
+  .then(r=>r.json())
+  .catch(()=>([]));
+
+/* render doctor bookings */
+const ulD = el('user-doctors');
+ulD.innerHTML = '';
+
+const doctorBookings = allBookings.filter(b => b.type === "doctor");
+
+if (doctorBookings.length > 0) {
+  doctorBookings.forEach(b => {
+    const li = document.createElement('li');
+    li.className = 'list-group-item';
+    li.textContent = `${b.name} — ${b.date} ${b.time}`;
+    ulD.appendChild(li);
+  });
+} else {
+  ulD.innerHTML = '<li class="list-group-item small-muted">No doctor bookings</li>';
+}
+
+/* render lab bookings */
+const ulL = el('user-labs');
+ulL.innerHTML = '';
+
+const labBookings = allBookings.filter(b => b.type === "lab");
+
+if (labBookings.length > 0) {
+  labBookings.forEach(b => {
+    const li = document.createElement('li');
+    li.className = 'list-group-item';
+    li.textContent = `${b.name} — ${b.date} ${b.time}`;
+    ulL.appendChild(li);
+  });
+} else {
+  ulL.innerHTML = '<li class="list-group-item small-muted">No lab bookings</li>';
+}
+
+
+  } catch (err) {
+    console.log("Dashboard fetch error", err);
+  }
+
   renderReminders();
 }
 
@@ -803,6 +936,31 @@ aiImageInput.addEventListener('change', (e)=>{
   if(!f) return;
   const img = document.createElement('img'); img.className='file-preview'; img.style.maxWidth='100%'; img.src = URL.createObjectURL(f); aiFilePreview.appendChild(img);
 });
+
+/* ---------- DELETE AI CHAT BUTTON ---------- */
+document.getElementById('ai-delete-chat').addEventListener('click', () => {
+    if (!currentConversationId) {
+        showToast("No chat to delete");
+        return;
+    }
+
+    if (!confirm("Are you sure you want to delete your AI chat history?")) return;
+
+    // Load all chats from storage
+    const all = JSON.parse(localStorage.getItem('ai_conversations') || '{}');
+
+    // Delete only this user's conversation
+    delete all[currentConversationId];
+
+    // Save updated conversations
+    localStorage.setItem('ai_conversations', JSON.stringify(all));
+
+    // Clear the chat UI
+    aiChatEl.innerHTML = '';
+
+    showToast("Chat history deleted");
+});
+
 
 document.getElementById('ask-ai-global').addEventListener('click', ()=> openAiPage('', 'General'));
 document.getElementById('ask-ai-pharmacy').addEventListener('click', ()=> openAiPage('', 'Pharmacy'));
@@ -844,6 +1002,8 @@ function appendMessageToMemory(convId, message){
   all[convId].push(message);
   localStorage.setItem('ai_conversations', JSON.stringify(all));
 }
+
+
 
 /* render single message object {who:'bot'|'user', text:'', time:'ISO', fileUrl?: ''} */
 function renderMessageToChat(msg){
